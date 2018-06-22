@@ -15,12 +15,14 @@ inline bool getRequiredParam(const ros::NodeHandle& nh, std::string name, T& val
 
 VescToOdom::VescToOdom(ros::NodeHandle nh, ros::NodeHandle private_nh) :
   odom_frame_("odom"), base_frame_("base_link"),
-  use_servo_cmd_(true), publish_tf_(false), x_(0.0), y_(0.0), yaw_(0.0)
+  use_servo_cmd_(true), use_kinematic_odom_(true), publish_tf_(false), 
+  x_(0.0), y_(0.0), yaw_(0.0), EPSILON_(1e-12)
 {
   // get ROS parameters
   private_nh.param("odom_frame", odom_frame_, odom_frame_);
   private_nh.param("base_frame", base_frame_, base_frame_);
   private_nh.param("use_servo_cmd_to_calc_angular_velocity", use_servo_cmd_, use_servo_cmd_);
+  private_nh.param("use_kinematic_motion_model", use_kinematic_odom_, use_kinematic_odom_);
   if (!getRequiredParam(nh, "speed_to_erpm_gain", speed_to_erpm_gain_))
     return;
   if (!getRequiredParam(nh, "speed_to_erpm_offset", speed_to_erpm_offset_))
@@ -75,13 +77,28 @@ void VescToOdom::vescStateCallback(const vesc_msgs::VescStateStamped::ConstPtr& 
 
   /** @todo could probably do better propigating odometry, e.g. trapezoidal integration */
 
-  // propigate odometry
-  double x_dot = current_speed * cos(yaw_);
-  double y_dot = current_speed * sin(yaw_);
-  x_ += x_dot * dt.toSec();
-  y_ += y_dot * dt.toSec();
-  if (use_servo_cmd_)
-    yaw_ += current_angular_velocity * dt.toSec();
+  if (!use_kinematic_odom_ || !use_servo_cmd_) {
+    // propigate odometry
+    double x_dot = current_speed * cos(yaw_);
+    double y_dot = current_speed * sin(yaw_);
+    x_ += x_dot * dt.toSec();
+    y_ += y_dot * dt.toSec();
+    if (use_servo_cmd_)
+      yaw_ += current_angular_velocity * dt.toSec();
+  } else {
+    // kinematic motion model odom propagation
+    double sin2beta = sin(2.0 * atan(0.5 * tan(current_steering_angle))) + EPSILON_;
+    double deltaTheta = (current_speed / wheelbase_) * sin2beta * dt.toSec();
+  
+    double sinTheta = sin(yaw_);
+    double cosTheta = cos(yaw_);
+    double x_dot = (wheelbase_ * (sin(yaw_ + deltaTheta) - sinTheta)) / sin2beta;
+    double y_dot = (wheelbase_ * (cosTheta - cos(yaw_ + deltaTheta))) / sin2beta;
+
+    x_ += x_dot;
+    y_ += y_dot;
+    yaw_ += deltaTheta; 
+  }
 
   // save state for next time
   last_state_ = state;

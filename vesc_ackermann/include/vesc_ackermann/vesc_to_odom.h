@@ -24,6 +24,7 @@ private:
   std::string base_frame_;
   /** State message does not report servo position, so use the command instead */
   bool use_servo_cmd_;
+  bool use_kinematic_odom_;
   // conversion gain and offset
   double speed_to_erpm_gain_, speed_to_erpm_offset_;
   double steering_to_servo_gain_, steering_to_servo_offset_;
@@ -44,6 +45,9 @@ private:
   // ROS callbacks
   void vescStateCallback(const vesc_msgs::VescStateStamped::ConstPtr& state);
   void servoCmdCallback(const std_msgs::Float64::ConstPtr& servo);
+
+  // Constant values
+  const double EPSILON_;
 };
 
 } // namespace vesc_ackermann
